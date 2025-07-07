@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-LOL ST-GCN training script
----------------------------------
+LOL ST-GCN training script with hardcoded configuration
+-----------------------------------------------------
 Train a Spatio-Temporal Graph Convolutional Network (ST-GCN) on a
 folder-structured LOL action-recognition dataset:
 
@@ -13,19 +13,16 @@ LOL/
  │   └── clips/*.mp4
  └── …
 
-Run:
+Requirements:
     pip install torch-geometric torch-geometric-temporal mediapipe==0.10.9
-    python lol_stgcn_training.py \
-        --dataset_root /path/to/LOL \
-        --sequence_length 32 \
-        --batch_size 8 \
-        --epochs 100
+
+Usage:
+    python lol_stgcn_training.py
 """
 
 # ---------------------------------------------------------------------- #
 # 1. Imports
 # ---------------------------------------------------------------------- #
-import argparse
 import json
 import os
 from pathlib import Path
@@ -44,7 +41,34 @@ from torch_geometric_temporal.nn.attention import STConv
 from tqdm import tqdm
 
 # ---------------------------------------------------------------------- #
-# 2. Skeleton extraction using MediaPipe
+# 2. Configuration Variables (Hardcoded)
+# ---------------------------------------------------------------------- #
+# Dataset Configuration
+DATASET_ROOT = "/path/to/LOL"  # Change this to your LOL dataset path
+SKELETON_CACHE = "lol_skeletons.json"
+
+# Training Configuration
+SEQUENCE_LENGTH = 32
+BATCH_SIZE = 8
+NUM_WORKERS = 2
+EPOCHS = 100
+LEARNING_RATE = 1e-3
+VAL_RATIO = 0.2
+
+# Model Configuration
+NUM_JOINTS = 33
+IN_CHANNELS = 3
+HIDDEN_CHANNELS = 64
+OUT_CHANNELS = 64
+KERNEL_SIZE = 3
+K = 3
+
+# Other Configuration
+PRECOMPUTE_SKELETONS = False  # Set to True to precompute skeletons first
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# ---------------------------------------------------------------------- #
+# 3. Skeleton extraction using MediaPipe
 # ---------------------------------------------------------------------- #
 class SkeletonExtractor:
     def __init__(self):
@@ -80,7 +104,7 @@ class SkeletonExtractor:
         return np.array(keypoints_seq, dtype=np.float32)
 
 # ---------------------------------------------------------------------- #
-# 3. Pre-processing utilities
+# 4. Pre-processing utilities
 # ---------------------------------------------------------------------- #
 class STGCNDataPreprocessor:
     def __init__(self, sequence_length: int = 32, num_joints: int = 33):
@@ -106,7 +130,7 @@ class STGCNDataPreprocessor:
         return skel.astype(np.float32)
 
 # ---------------------------------------------------------------------- #
-# 4. Graph construction
+# 5. Graph construction
 # ---------------------------------------------------------------------- #
 class GraphConstructor:
     def __init__(self):
@@ -130,7 +154,7 @@ class GraphConstructor:
         return x, edge_index
 
 # ---------------------------------------------------------------------- #
-# 5. Dataset
+# 6. Dataset
 # ---------------------------------------------------------------------- #
 class LOLDataset(Dataset):
     """
@@ -193,7 +217,7 @@ class LOLDataset(Dataset):
         return x, edge_index, torch.tensor(label, dtype=torch.long)
 
 # ---------------------------------------------------------------------- #
-# 6. Dataloader helpers
+# 7. Dataloader helpers
 # ---------------------------------------------------------------------- #
 def collate_fn(batch):
     xs, edge_indices, labels = zip(*batch)
@@ -222,7 +246,7 @@ def make_lol_loaders(root_dir: str,
     return train_ld, val_ld, len(full_ds.classes), full_ds.classes
 
 # ---------------------------------------------------------------------- #
-# 7. Model
+# 8. Model
 # ---------------------------------------------------------------------- #
 class STGCNClassifier(nn.Module):
     def __init__(self,
@@ -257,7 +281,7 @@ class STGCNClassifier(nn.Module):
         return self.classifier(x)
 
 # ---------------------------------------------------------------------- #
-# 8. Training & evaluation
+# 9. Training & evaluation
 # ---------------------------------------------------------------------- #
 def evaluate(model, loader, device):
     model.eval()
@@ -273,11 +297,8 @@ def evaluate(model, loader, device):
     return 100 * correct / total
 
 
-def train(model, train_ld, val_ld,
-          epochs: int = 100,
-          lr: float = 1e-3,
-          device: torch.device | str = "cuda"):
-    device = torch.device(device if torch.cuda.is_available() else "cpu")
+def train(model, train_ld, val_ld, epochs: int, lr: float, device):
+    device = torch.device(device)
     model.to(device)
 
     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -322,11 +343,9 @@ def train(model, train_ld, val_ld,
     return best_acc
 
 # ---------------------------------------------------------------------- #
-# 9. Optional skeleton pre-computation
+# 10. Optional skeleton pre-computation
 # ---------------------------------------------------------------------- #
-def precompute_skeletons(dataset_root: str,
-                         output_file: str,
-                         seq_len: int = 32):
+def precompute_skeletons(dataset_root: str, output_file: str, seq_len: int = 32):
     ds = LOLDataset(dataset_root, seq_len)
     skel_cache = {}
     for vpath, _ in tqdm(ds.samples, desc="Extracting skeletons"):
@@ -338,50 +357,77 @@ def precompute_skeletons(dataset_root: str,
     print(f"Saved {len(skel_cache)} skeleton sequences to {output_file}")
 
 # ---------------------------------------------------------------------- #
-# 10. CLI
+# 11. Main execution
 # ---------------------------------------------------------------------- #
-def parse_args():
-    p = argparse.ArgumentParser(description="Train ST-GCN on LOL dataset")
-    p.add_argument("--dataset_root", required=True,
-                   help="Path to LOL dataset root")
-    p.add_argument("--sequence_length", type=int, default=32)
-    p.add_argument("--batch_size", type=int, default=8)
-    p.add_argument("--epochs", type=int, default=100)
-    p.add_argument("--num_workers", type=int, default=2)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--val_ratio", type=float, default=0.2)
-    p.add_argument("--precompute_skeletons", action="store_true",
-                   help="Extract and cache all skeletons then exit")
-    p.add_argument("--skeleton_cache", default="lol_skeletons.json",
-                   help="Path to skeleton cache JSON")
-    return p.parse_args()
-
-
 def main():
-    args = parse_args()
+    print("=" * 60)
+    print("LOL ST-GCN Action Recognition Training")
+    print("=" * 60)
+    print(f"Dataset root: {DATASET_ROOT}")
+    print(f"Sequence length: {SEQUENCE_LENGTH}")
+    print(f"Batch size: {BATCH_SIZE}")
+    print(f"Epochs: {EPOCHS}")
+    print(f"Learning rate: {LEARNING_RATE}")
+    print(f"Device: {DEVICE}")
+    print("=" * 60)
 
-    if args.precompute_skeletons:
-        precompute_skeletons(args.dataset_root, args.skeleton_cache,
-                             args.sequence_length)
+    # Check if skeleton precomputation is needed
+    if PRECOMPUTE_SKELETONS:
+        print("\nPrecomputing skeletons...")
+        precompute_skeletons(DATASET_ROOT, SKELETON_CACHE, SEQUENCE_LENGTH)
+        print("Skeleton precomputation completed!")
         return
 
+    # Create data loaders
+    print("\nCreating data loaders...")
     train_ld, val_ld, num_classes, class_names = make_lol_loaders(
-        root_dir=args.dataset_root,
-        seq_len=args.sequence_length,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        val_ratio=args.val_ratio,
-        precomp_json=args.skeleton_cache if Path(args.skeleton_cache).exists() else None
+        root_dir=DATASET_ROOT,
+        seq_len=SEQUENCE_LENGTH,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKERS,
+        val_ratio=VAL_RATIO,
+        precomp_json=SKELETON_CACHE if Path(SKELETON_CACHE).exists() else None
     )
 
     print(f"Classes ({num_classes}): {class_names}")
-    model = STGCNClassifier(num_classes=num_classes)
+    print(f"Training samples: {len(train_ld.dataset)}")
+    print(f"Validation samples: {len(val_ld.dataset)}")
 
-    best = train(model, train_ld, val_ld,
-                 epochs=args.epochs,
-                 lr=args.lr)
-    print(f"Training complete – best val acc {best:.2f}% "
-          f"(weights saved as best_lol_stgcn.pth)")
+    # Create model
+    print(f"\nCreating ST-GCN model...")
+    model = STGCNClassifier(
+        num_nodes=NUM_JOINTS,
+        in_channels=IN_CHANNELS,
+        hidden_channels=HIDDEN_CHANNELS,
+        out_channels=OUT_CHANNELS,
+        num_classes=num_classes,
+        kernel_size=KERNEL_SIZE,
+        K=K
+    )
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Model created with {total_params:,} parameters")
+
+    # Test data loader
+    print(f"\nTesting data loader...")
+    for batch_idx, (x, edge_index, labels) in enumerate(train_ld):
+        print(f"Batch {batch_idx + 1}:")
+        print(f"  Input shape: {x.shape}")
+        print(f"  Edge index shape: {edge_index.shape}")
+        print(f"  Labels shape: {labels.shape}")
+        print(f"  Sample labels: {[class_names[l.item()] for l in labels[:3]]}")
+        if batch_idx >= 2:  # Show first 3 batches
+            break
+
+    # Start training
+    print(f"\nStarting training...")
+    best_acc = train(model, train_ld, val_ld, EPOCHS, LEARNING_RATE, DEVICE)
+
+    print(f"\nTraining completed!")
+    print(f"Best validation accuracy: {best_acc:.2f}%")
+    print(f"Model saved as: best_lol_stgcn.pth")
+    if Path(SKELETON_CACHE).exists():
+        print(f"Skeleton cache: {SKELETON_CACHE}")
 
 
 if __name__ == "__main__":
